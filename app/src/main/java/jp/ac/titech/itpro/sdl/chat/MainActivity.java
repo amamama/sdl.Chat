@@ -4,13 +4,13 @@ import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.content.Intent;
 import android.graphics.Color;
+import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.support.v7.app.AlertDialog;
 import android.support.v7.app.AppCompatActivity;
-import android.os.Bundle;
 import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.Menu;
@@ -43,6 +43,7 @@ public class MainActivity extends AppCompatActivity {
     private ListView logview;
     private EditText input;
     private Button button;
+    private Button buzz;
 
     private final ArrayList<ChatMessage> chatLog = new ArrayList<>();
     private ArrayAdapter<ChatMessage> chatLogAdapter;
@@ -73,6 +74,8 @@ public class MainActivity extends AppCompatActivity {
         progress = findViewById(R.id.main_progress);
         input = findViewById(R.id.main_input);
         button = findViewById(R.id.main_button);
+        buzz = findViewById(R.id.buzz_button);
+
 
         chatLogAdapter = new ArrayAdapter<ChatMessage>(this, 0, chatLog) {
             @Override
@@ -121,34 +124,22 @@ public class MainActivity extends AppCompatActivity {
         initializer.initialize();
     }
 
-    private static class CommHandler extends Handler {
-        WeakReference<MainActivity> ref;
+    public void onClickSendButton(View v) {
+        Log.d(TAG, "onClickSendButton");
 
-        CommHandler(MainActivity activity) {
-            ref = new WeakReference<>(activity);
+        String content = input.getText().toString().trim();
+        if (content.isEmpty()) {
+            Toast.makeText(this, R.string.toast_empty_message, Toast.LENGTH_SHORT).show();
+            return;
         }
-
-        @Override
-        public void handleMessage(Message msg) {
-            Log.d(TAG, "handleMessage");
-            MainActivity activity = ref.get();
-            if (activity == null) {
-                return;
-            }
-            switch (msg.what) {
-                case Agent.MSG_STARTED:
-                    BluetoothDevice device = (BluetoothDevice) msg.obj;
-                    activity.setState(State.Connected, ScanActivity.caption(device));
-                    break;
-                case Agent.MSG_FINISHED:
-                    Toast.makeText(activity, R.string.toast_connection_closed, Toast.LENGTH_SHORT).show();
-                    activity.setState(State.Disconnected);
-                    break;
-                case Agent.MSG_RECEIVED:
-                    activity.showMessage((ChatMessage) msg.obj);
-                    break;
-            }
-        }
+        messageSeq++;
+        long time = System.currentTimeMillis();
+        ChatMessage message = new ChatMessage(messageSeq, time, content, adapter.getName(), 0);
+        agent.send(message);
+        chatLogAdapter.add(message);
+        chatLogAdapter.notifyDataSetChanged();
+        logview.smoothScrollToPosition(chatLog.size());
+        input.getEditableText().clear();
     }
     @Override
     protected void onDestroy() {
@@ -218,32 +209,19 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    public void onClickSendButton(View v) {
-        Log.d(TAG, "onClickSendButton");
-
-        String content = input.getText().toString().trim();
-        if (content.isEmpty()) {
-            Toast.makeText(this, R.string.toast_empty_message, Toast.LENGTH_SHORT).show();
-            return;
-        }
+    public void onClickBuzzButton(View v) {
+        Log.d(TAG, "onClickBuzzButton");
         messageSeq++;
         long time = System.currentTimeMillis();
-        ChatMessage message = new ChatMessage(messageSeq, time, content, adapter.getName());
+        ChatMessage message = new ChatMessage(messageSeq, time, "", adapter.getName(), 1);
         agent.send(message);
-        chatLogAdapter.add(message);
-        chatLogAdapter.notifyDataSetChanged();
-        logview.smoothScrollToPosition(chatLog.size());
-        input.getEditableText().clear();
-    }
-
-    public void setState(State state) {
-        setState(state, null);
     }
 
     public void setState(State state, String arg) {
         this.state = state;
         input.setEnabled(state == State.Connected);
         button.setEnabled(state == State.Connected);
+        buzz.setEnabled(state == state.Connected);
         switch (state) {
         case Initializing:
         case Disconnected:
@@ -263,6 +241,15 @@ public class MainActivity extends AppCompatActivity {
         invalidateOptionsMenu();
     }
 
+    public void setState(State state) {
+        setState(state, null);
+    }
+
+    public void playSound() {
+        Log.d(TAG, "playSound");
+        soundPlayer.playSound();
+    }
+
     public void setProgress(boolean isConnecting) {
         progress.setIndeterminate(isConnecting);
     }
@@ -271,6 +258,38 @@ public class MainActivity extends AppCompatActivity {
         chatLogAdapter.add(message);
         chatLogAdapter.notifyDataSetChanged();
         logview.smoothScrollToPosition(chatLogAdapter.getCount());
+    }
+
+    private static class CommHandler extends Handler {
+        WeakReference<MainActivity> ref;
+
+        CommHandler(MainActivity activity) {
+            ref = new WeakReference<>(activity);
+        }
+
+        @Override
+        public void handleMessage(Message msg) {
+            Log.d(TAG, "handleMessage");
+            MainActivity activity = ref.get();
+            if (activity == null) {
+                return;
+            }
+            switch (msg.what) {
+                case Agent.MSG_STARTED:
+                    BluetoothDevice device = (BluetoothDevice) msg.obj;
+                    activity.setState(State.Connected, ScanActivity.caption(device));
+                    break;
+                case Agent.MSG_FINISHED:
+                    Toast.makeText(activity, R.string.toast_connection_closed, Toast.LENGTH_SHORT).show();
+                    activity.setState(State.Disconnected);
+                    break;
+                case Agent.MSG_RECEIVED:
+                    ChatMessage mes = (ChatMessage) msg.obj;
+                    if (mes.sound == 0) activity.showMessage(mes);
+                    else activity.playSound();
+                    break;
+            }
+        }
     }
 
     private void disconnect() {
